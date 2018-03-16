@@ -39,13 +39,13 @@ export {
      "IterationLimit",
      
 -- Helper methods
+--     "genericGorSyzMatrix",
 --     "numMonomials",
---     "submaximalPfaffians",
+     "submaximalPfaffians",
 
 -- Main package methods
      "beMatrix",
      "gradeThreeGorensteinBetti",
-     "genericGorSyzMatrix",
      "isGorMinGenDegSeq",
      "randomGorMinGenDegSeq",
      "randomGradeThreeGorenstein",
@@ -60,7 +60,7 @@ export {
 
 -- Method: submaximalPfaffians
 -- Input: Matrix -- A skew-symmetric matrix M of size (2n+1) x (2n+1) over a ring R.
--- Output: List -- An ordered list of the signed sub-maximal (2n x 2n) pfaffians of M.
+-- Output: Matrix -- An matrix containing the signed sub-maximal (2n x 2n) pfaffians of M.
 submaximalPfaffians = method();
 submaximalPfaffians(Matrix) := M -> (
     local m; local n;
@@ -77,7 +77,7 @@ submaximalPfaffians(Matrix) := M -> (
     -- use the existing 'pfaffians' command in M2 to compute the pfaffians of
     -- the principal (n-1) x (n-1) skew-symmetric submatrices and affix signs
     -- as appropriate.
-    return apply(m, i -> if submatrix'(M,{i},{i}) == 0 then 0 else (-1)^i*(gens pfaffians(n-1,submatrix'(M,{i},{i})))_(0,0));
+    return matrix{apply(m, i -> if submatrix'(M,{i},{i}) == 0 then 0 else (-1)^i*(gens pfaffians(n-1,submatrix'(M,{i},{i})))_(0,0))};
 )
 
 -- Method: numMonomials
@@ -230,13 +230,11 @@ beMatrix(Matrix) := opts -> d -> (
      n = numcols d;
      degList = apply(n, i -> (degree d_(0,i))#0); -- Degree sequence for the generators.
      
-     -- Check that the generators satisfy the required conditions.
-     if not isGorMinGenDegSeq(sort degList) then error "Error: The given generators do not minimally generate a homogeneous grade three Gorenstein ideal.";
-     if not isHomogeneous I then error "Error: Expected generators of a homogeneous ideal.";
-     
      -- If the user passes the CheckGorenstein option, check that the given set
      -- minimally generates a grade three Gorenstein ideal.
      if opts.CheckGorenstein then (
+     	 if not isGorMinGenDegSeq(sort degList) then error "Error: The given generators do not minimally generate a homogeneous grade three Gorenstein ideal.";
+     	 if not isHomogeneous I then error "Error: Expected generators of a homogeneous ideal.";
      	 if n != numcols mingens I then error "Error: The given generating set is not minimal.";
      	 if not isCM(comodule I) or depth(I,R) != 3 or rank (res comodule I)_3 != 1 then error "Error: The given polynomials do not generate a grade 3 Gorenstein ideal.";
      );
@@ -382,13 +380,13 @@ randomGradeThreePureGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genLimit,R) -> (
 --     "IterationLimit",
      
 -- Helper methods
+--     "genericGorSyzMatrix",
 --     "numMonomials",
 --     "submaximalPfaffians",
 
 -- Main package methods
 --     "beMatrix",
 --     "gradeThreeGorensteinBetti",
---     "genericGorSyzMatrix",
 --     "isGorMinGenDegSeq",
 --     "randomGorMinGenDegSeq",
 --     "randomGradeThreeGorenstein",
@@ -405,8 +403,9 @@ Headline
 Description
   Text
     This package contains methods for performing computations involving homogeneous grade
-    three Gorenstein ideals in polynomial rings.  Given a non-decreasing sequence of positive
-    integers having odd length, it is well understood by work of Diesel the necessary and sufficient
+    three Gorenstein ideals in polynomial rings.
+    
+    Given a non-decreasing sequence of positive integers having odd length, it is well understood by work of Diesel the necessary and sufficient
     conditions under which this sequence is the sequence of degrees of a minimal generating set of a homogeneous
     grade three Gorenstein ideal I (see Sections 2.2 and 3.1 of Diesel's {\em Irreducibility
     and dimension theorems for families of height 3 Gorenstein algebras}), and the package can test whether a given degree sequence satisfies these
@@ -443,17 +442,118 @@ Description
     increase computation time.
 ///
 
+doc ///
+Key
+    IterationLimit
+Headline
+    an optional parameter.
+Description
+  Text
+    An optional parameter (default value {\tt 1000}) which allows the user to specify
+    how many iterations the method will go through when trying to compute a random
+    Gorenstein ideal with the given properties.
+///
+
+doc ///
+Key
+    beMatrix
+Headline
+    computes a Buchsbaum-Eisenbud matrix for a given generating set.
+Usage
+    B = beMatrix(g)
+Inputs
+    g:Matrix
+      a minimal generating set for a homogeneous grade three Gorenstein ideal.
+    CheckGorenstein => Boolean
+      an option which allows the user to check whether the given generating set minimally generates a homogeneous grade three Gorenstein ideal.
+Outputs
+    B:Matrix
+      a Buchsbaum-Eisenbud matrix for the given minimal generating set.
+Description
+  Text
+    Given a generating set for a homogeneous grade three Gorenstein ideal, Buchsbaum and Eisenbud
+    proved that there exists a skew-symmetric presentation matrix for the ideal whose signed submaximal
+    Pfaffians are (up to scalar multiple) equal to the given generators.  We refer to such a presentation
+    matrix as a Buchsbaum-Eisenbud matrix.  Standard algorithms for computing a presentation matrix
+    for an ideal do not take into account the existence of a presentation matrix having this special
+    structure, and will typically not return a skew-symmetric presentation matrix.  This method has the
+    ability to compute a Buchsbaum-Eisenbud matrix for a given minimal generating set.
+
+  Example
+    R = ZZ/5[x,y,z]
+    g = matrix {{-x^2+x*y+2*x*z, -2*x^2+x*y-2*y^2+2*y*z+2*z^2, -2*x*y+x*z, x^4+x*y^3-x^3*z+x^2*y*z-2*x*y^2*z+2*y^3*z-x^2*z^2-x*y*z^2+y*z^3+z^4, x^3*y-x^2*y^2+y^4+x^3*z+x*y^2*z+y^3*z+x*y*z^2+y^2*z^2+2*x*z^3+2*y*z^3+z^4}}
+    I = ideal(g)
+    
+    P = (res comodule I).dd_2 -- Presentation matrix given natively by Macaulay2.
+    P + transpose(P) == 0 -- The matrix is not skew-symmetric.
+    
+    B = beMatrix(g) -- Compute a skew-symmetric presentation matrix.
+    B + transpose(B) == 0
+    g*B == 0 -- The columns of B are relations on the given generating set.
+    submaximalPfaffians(B)
+    submaximalPfaffians(B) == -g -- The signed submaximal Pfaffians of B are a scalar multiple of g.
+    
+Caveat
+    If the given generating set is not minimal, the method may give unexpected results or fail entirely.
+///
+
+doc ///
+Key
+    (beMatrix,Matrix)
+///
+
+doc ///
+Key
+    gradeThreeGorensteinBetti
+Headline
+    computes the Betti table for the minimal graded free resolution of a homogeneous grade three Gorenstein ideal, given the generator degrees.
+Usage
+    B = gradeThreeGorensteinBetti(d)
+Inputs
+    d:List
+      a non-decreasing list of positive integers representing the degrees of a minimal generating set for a homogeneous grade three Gorenstein ideal {\tt I} in a polynomial ring {\tt R}.
+Outputs
+    B:BettiTally
+      the Betti table for the resolution of {\tt R/I}.
+Description
+  Text
+    The degrees of the forms in a minimal generating set for a homogeneous grade three Gorenstein ideal
+    completely determine the graded Betti numbers of R/I.  This method computes the graded Betti numbers
+    from the given generator degrees, without needing to compute the free resolution.  If the given degree
+    sequence cannot occur as the degree sequence of a minimal generating set for a homogeneous grade
+    three Gorenstein ideal, an error is thrown.
+
+  Example
+    d = {5,5,8,8,9,9,10}
+    B = gradeThreeGorensteinBetti(d)
+    
+///
+
+
+
 --------------------------------------------------------------------
 -- Tests -----------------------------------------------------------
 --------------------------------------------------------------------
 
+-- beMatrix Tests --
+TEST ///
+    R = ZZ/5[x,y,z]
+    g = matrix {{-x^2+x*y+2*x*z, -2*x^2+x*y-2*y^2+2*y*z+2*z^2, -2*x*y+x*z, x^4+x*y^3-x^3*z+x^2*y*z-2*x*y^2*z+2*y^3*z-x^2*z^2-x*y*z^2+y*z^3+z^4, x^3*y-x^2*y^2+y^4+x^3*z+x*y^2*z+y^3*z+x*y*z^2+y^2*z^2+2*x*z^3+2*y*z^3+z^4}}
+    I = ideal(g)
+    B = beMatrix(g)
+    assert(B + transpose(B) == 0)
+    assert(g*B == 0)
+    assert(submaximalPfaffians(B) == -g)
+    ///
+
+-- randomGradeThreeDSGorenstein Tests --
 TEST ///
     R = QQ[x,y,z];
     d = randomGorMinGenDegSeq(7,10);
     g = randomGradeThreeDSGorenstein(d,R);
     M = map(R^7,R^7,beMatrix g);
-    assert(M + transpose(M) = 0);
-    assert(d*M = 0);
+    assert(M + transpose(M) == 0);
+    assert(d*M == 0);
     ///
 
 end
@@ -532,3 +632,5 @@ viewHelp GradeThreeGorenstein
 viewHelp CheckGorenstein
 R = QQ[x,y,z]
 d = randomGorMinGenDegSeq(5,11)
+
+    
