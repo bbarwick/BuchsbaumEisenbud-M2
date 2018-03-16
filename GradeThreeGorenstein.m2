@@ -1,6 +1,6 @@
 -- To do list:
 
--- 1. Tweak beMatrix to work over ZZ/2.
+-- 1. Tweak beMatrix (really genericGorSyzMatrix) to work over ZZ/2.
 -- 2. Figure out error with unexported unset symbol c from genSyzMatrix method.
 -- 3. Write documentation using simpledoc.
 -- 4. Write tests.
@@ -39,13 +39,15 @@ export {
      "IterationLimit",
      
 -- Helper methods
-     "numMonomials",
-     "submaximalPfaffians",
-     "isGorMinGenDegSeq",
-     "randomGorMinGenDegSeq",
+--     "numMonomials",
+--     "submaximalPfaffians",
+
+-- Main package methods
+     "beMatrix",
      "gradeThreeGorensteinBetti",
      "genericGorSyzMatrix",
-     "beMatrix",
+     "isGorMinGenDegSeq",
+     "randomGorMinGenDegSeq",
      "randomGradeThreeGorenstein",
      "randomGradeThreeDSGorenstein",
      "randomGradeThreePureGorenstein"
@@ -181,7 +183,7 @@ genericGorSyzMatrix(List,Ring) := (degList,R) -> (
 	     
     -- Create a list of variables to represent the unknown coefficients in the matrix.
     coeffList = apply(polyDeg, L -> (
-	 apply(numMonomials(L#2,r), k -> (symbol c)_{L#0,L#1,k})
+	 apply(numMonomials(L#2,r), k -> (vars(2))_{L#0,L#1,k})
     ));
 
     coeffList = flatten coeffList;
@@ -200,7 +202,7 @@ genericGorSyzMatrix(List,Ring) := (degList,R) -> (
     scan(polyDeg, L -> (
 	if L#2 >= 0 then (
 	    m = numMonomials(L#2,r);
-	    M_(L#0,L#1) = (map(S^1,S^m,{apply(m, k -> (c_{L#0,L#1,k})_S)})*map(S^m,S^1,transpose(monBases#(L#2))))_(0,0);
+	    M_(L#0,L#1) = (map(S^1,S^m,{apply(m, k -> ((vars(2))_{L#0,L#1,k})_S)})*map(S^m,S^1,transpose(monBases#(L#2))))_(0,0);
             M_(L#1,L#0) = -M_(L#0,L#1);
 	);
     ));
@@ -371,6 +373,89 @@ randomGradeThreePureGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genLimit,R) -> (
      return possibleGens;
 )
 
+--------------------------------------------------------------------
+-- Documentation ---------------------------------------------------
+--------------------------------------------------------------------
+
+-- Options
+--     "CheckGorenstein",
+--     "IterationLimit",
+     
+-- Helper methods
+--     "numMonomials",
+--     "submaximalPfaffians",
+
+-- Main package methods
+--     "beMatrix",
+--     "gradeThreeGorensteinBetti",
+--     "genericGorSyzMatrix",
+--     "isGorMinGenDegSeq",
+--     "randomGorMinGenDegSeq",
+--     "randomGradeThreeGorenstein",
+--     "randomGradeThreeDSGorenstein",
+--     "randomGradeThreePureGorenstein"
+
+beginDocumentation()
+
+doc ///
+Key
+    GradeThreeGorenstein
+Headline
+    A package for computations involving homogeneous grade three Gorenstein ideals.
+Description
+  Text
+    This package contains methods for performing computations involving homogeneous grade
+    three Gorenstein ideals in polynomial rings.  Given a non-decreasing sequence of positive
+    integers having odd length, it is well understood by work of Diesel the necessary and sufficient
+    conditions under which this sequence is the sequence of degrees of a minimal generating set of a homogeneous
+    grade three Gorenstein ideal I (see Sections 2.2 and 3.1 of Diesel's {\em Irreducibility
+    and dimension theorems for families of height 3 Gorenstein algebras}), and the package can test whether a given degree sequence satisfies these
+    requirements.  Given such a degree sequence for a set of minimal generators of a Gorenstein ideal I, this package  
+    can display the Betti diagram corresponding to a minimal graded free resolution of R/I numerically, without the
+    need to compute the syzygies.  There are also various methods provided for generating random homogeneous grade three
+    Gorenstein ideals in polynomial rings.  The primary method provided by this package is @TO beMatrix@, which computes
+    a Buchsbaum-Eisenbud matrix for a given set of minimal generators of a homogeneous grade three Gorenstein ideal.
+    A Buchsbaum-Eisenbud matrix is an alternating presentation matrix for the ideal such that the signed submaximal
+    Pfaffians of the matrix are equal (up to scalar multiple) to the given generating set.  The existence of such a
+    presentation matrix was proved in 1977 by Buchsbaum and Eisenbud in the paper {\em Algebra structures for finite free
+    resolutions, and some structure theorems for ideals of codimension 3}.
+  
+    References:
+    
+        $\bullet$ Diesel, Susan J, {\em Irreducibility and dimension theorems for families of height 3 Gorenstein algebras},
+    Pacific J. Math. 172 (1996), no. 2, 365-397.    
+    
+        $\bullet$ Buchsbaum, David and Eisenbud, David, {\em Algebra structures for finite free resolutions, and some structure theorems for ideals of codimension 3},
+    Amer. J. Math. 99 (1977), no. 3, 447-485. 
+
+///
+
+doc ///
+Key
+    CheckGorenstein
+Headline
+    an optional parameter.
+Description
+  Text
+    An optional parameter (default value {\tt false}) which allows the user to specify
+    that they would like for the method to check whether the given generating set actually
+    generates a grade three Gorenstein ideal.  Setting this option to {\tt true} will
+    increase computation time.
+///
+
+--------------------------------------------------------------------
+-- Tests -----------------------------------------------------------
+--------------------------------------------------------------------
+
+TEST ///
+    R = QQ[x,y,z];
+    d = randomGorMinGenDegSeq(7,10);
+    g = randomGradeThreeDSGorenstein(d,R);
+    M = map(R^7,R^7,beMatrix g);
+    assert(M + transpose(M) = 0);
+    assert(d*M = 0);
+    ///
+
 end
 
 
@@ -437,9 +522,13 @@ transpose(BE3) == -BE3 -- Check that it is alternating.
 matrix{submaximalPfaffians(BE3)} -- Compare signed maximal ordered pfaffians
 gens I3                 -- with original generators.
 
--- Tests
+
+--------------------------
 
 restart
-loadPackage "GradeThreeGorenstein"
+uninstallPackage "GradeThreeGorenstein"
+installPackage "GradeThreeGorenstein"
+viewHelp GradeThreeGorenstein
+viewHelp CheckGorenstein
 R = QQ[x,y,z]
 d = randomGorMinGenDegSeq(5,11)
