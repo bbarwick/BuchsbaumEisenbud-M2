@@ -1,13 +1,13 @@
 -- To do list:
 
 -- 1. Tweak beMatrix to work over ZZ/2.
--- 2. 
--- 3. 
--- 4. 
+-- 2. Figure out error with unexported unset symbol c from genSyzMatrix method.
+-- 3. Write documentation using simpledoc.
+-- 4. Write tests.
 -- 5. 
 
 -----------------------------------------------------------------------------
--- PURPOSE : The BEMatrix package for Macaulay2 computes a Buchsbaum-Eisenbud
+-- PURPOSE : The GradeThreeGorenstein package for Macaulay2 computes a Buchsbaum-Eisenbud
 -- matrix for a homogeneous grade three Gorenstein ideal in a polynomial
 -- ring.
 --
@@ -36,32 +36,31 @@ export {
 
 -- Options
      "CheckGorenstein",
---     "CheckUnimodular",
+     "IterationLimit",
      
 -- Helper methods
---     "numMonomials",
-     "signedPfaffians",
+     "numMonomials",
+     "submaximalPfaffians",
      "isGorMinGenDegSeq",
      "randomGorMinGenDegSeq",
-     "codimThreeGorBetti",
+     "gradeThreeGorensteinBetti",
      "genericGorSyzMatrix",
-     "beMatrix"
-          
--- Main methods for QuillenSuslin algorithm
---     "changeVar",
---     "computeFreeBasis"
-     
+     "beMatrix",
+     "randomGradeThreeGorenstein",
+     "randomGradeThreeDSGorenstein",
+     "randomGradeThreePureGorenstein"
+
 }
 
 ------------------------------------------------------------
 -- Small helper methods ------------------------------------
 ------------------------------------------------------------
 
--- Method: signedPfaffians
--- Input: Matrix -- A matrix M of size (2n+1) x (2n+1) over a ring R.
+-- Method: submaximalPfaffians
+-- Input: Matrix -- A skew-symmetric matrix M of size (2n+1) x (2n+1) over a ring R.
 -- Output: List -- An ordered list of the signed sub-maximal (2n x 2n) pfaffians of M.
-signedPfaffians = method();
-signedPfaffians(Matrix) := M -> (
+submaximalPfaffians = method();
+submaximalPfaffians(Matrix) := M -> (
     local m; local n;
     m = numrows M;
     n = numcols M;
@@ -96,13 +95,16 @@ numMonomials(ZZ,ZZ) := (d,n) -> (
 isGorMinGenDegSeq = method();
 isGorMinGenDegSeq(List) := degList -> (
      local theta; local n; local m; local result;
+     
      n = #degList;
      if not odd n then return false; -- The number of minimal generators must be odd.
+     if min degList <= 0 then return false; -- The minimal generators must have positive degree.
      m = sub((n-1)/2,ZZ);
-     if sum(degList) % m != 0 then return false;
+     if sum(degList) % m != 0 then return false; -- See Diesel's paper.
+     
      theta = sub(sum(degList)/m,ZZ);
-     if min degList <= 0 then error "Error: Expected a sequence of positive integers.";
-     if degList != sort degList then error "Error: Expected a non-decreasing sequence.";
+     degList = sort degList; -- Make sure the list is in non-decreasing order.
+     
      -- If theta <= degList#i+degList#(n-i) for some i=0,..,m-1, then return false,
      -- else return true.
      result = scan(m, i -> if theta <= degList#(i+1)+degList#(n-1-i) then break false);
@@ -115,7 +117,6 @@ isGorMinGenDegSeq(List) := degList -> (
 -- homogeneous grade three Gorenstein ideal minimally generated in these degrees.
 randomGorMinGenDegSeq = method();
 randomGorMinGenDegSeq(ZZ,ZZ):= (n,M) ->(
-    
     if not odd n then error "Error: A degree sequence for a set of minimal generators of a homogeneous grade three Gorenstein ideal must have odd length.";
     
     local D;
@@ -124,24 +125,23 @@ randomGorMinGenDegSeq(ZZ,ZZ):= (n,M) ->(
     while not isGorMinGenDegSeq(D) do (
                 D = sort apply(n, i-> random(1,M));
     );
-
     return D;
 )
 
 
--- Method: codimThreeGorBetti
+-- Method: gradeThreeGorensteinBetti
 -- Input: List -- A non-decreasing list of positive integers representing a possible degree sequence for
 -- a set of minimal generators for a homogeneous grade three Gorenstein ideal I.
 -- Output: BettiTally -- The Betti table of R/I. 
-codimThreeGorBetti = method();
-codimThreeGorBetti(List):= degList ->(
+gradeThreeGorensteinBetti = method();
+gradeThreeGorensteinBetti(List):= degList ->(
     if  not isGorMinGenDegSeq(degList) then error "Error: The degree sequence is not the degree sequence of minimal generators for any homogeneous grade three Gorenstein ideal.";
     
     local m; local theta; local K; local degFreq; local C; local D;
     
     m = sub((#degList-1)/2,ZZ);
     theta = sub(sum(degList)/m,ZZ);
-    K = max L;
+    K = max degList;
     
     -- Create a list of the number of times that each generator degree occurs.
     degFreq = apply(toList(1..K), i -> #positions(degList, j -> j==i));
@@ -155,8 +155,11 @@ codimThreeGorBetti(List):= degList ->(
 )
 
 
--- Given a list of degrees of generators and the ambient polynomial ring, create a generic
--- syzygy matrix for a homogeneous grade three Gorenstein ideal minimally generated in those degrees.
+-- Method: genericGorSyzMatrix
+-- Input: (List,Ring) -- A non-decreasing list of positive integers representing a possible degree sequence for
+-- a set of minimal generators for a homogeneous grade three Gorenstein ideal I, and a polynomial ring R.
+-- Output: Matrix -- A matrix of generic homogeneous forms having the correct degrees to be a 
+-- Buchsbaum-Eisenbud matrix for a set of minimal generators having the given degree sequence.
 genericGorSyzMatrix = method();
 genericGorSyzMatrix(List,Ring) := (degList,R) -> (
     local n; local theta; local syzDeg; local r; local polyDeg; local coeffList;
@@ -174,11 +177,11 @@ genericGorSyzMatrix(List,Ring) := (degList,R) -> (
 	 apply(toList((i+1)..(n-1)), j -> {i,j,syzDeg#j-degList#i})
     );
 
-    polyDeg = flatten polyDeg;	     
+    polyDeg = flatten polyDeg;     
 	     
     -- Create a list of variables to represent the unknown coefficients in the matrix.
     coeffList = apply(polyDeg, L -> (
-	 apply(numMonomials(L#2,r), k -> c_{L#0,L#1,k})
+	 apply(numMonomials(L#2,r), k -> (symbol c)_{L#0,L#1,k})
     ));
 
     coeffList = flatten coeffList;
@@ -195,9 +198,11 @@ genericGorSyzMatrix(List,Ring) := (degList,R) -> (
     -- Create the generic syzygy matrix.
     M = mutableMatrix(S,n,n);
     scan(polyDeg, L -> (
-	m = numMonomials(L#2,r);
-	M_(L#0,L#1) = (map(S^1,S^m,{apply(m, k -> (c_{L#0,L#1,k})_S)})*map(S^m,S^1,transpose(monBases#(L#2))))_(0,0);
-        M_(L#1,L#0) = -M_(L#0,L#1);
+	if L#2 >= 0 then (
+	    m = numMonomials(L#2,r);
+	    M_(L#0,L#1) = (map(S^1,S^m,{apply(m, k -> (c_{L#0,L#1,k})_S)})*map(S^m,S^1,transpose(monBases#(L#2))))_(0,0);
+            M_(L#1,L#0) = -M_(L#0,L#1);
+	);
     ));
     
     return matrix M;
@@ -210,8 +215,6 @@ genericGorSyzMatrix(List,Ring) := (degList,R) -> (
 -- Output: Matrix -- A Buchsbaum-Eisenbud matrix for the given minimal generating set.  The
 -- signed sub-maximal pfaffians of this matrix are equal to a scalar multiple of the given
 -- generators.
-
--- Todo: Modify this method to work for polynomial rings in >=3 variables.
 beMatrix = method(Options => {CheckGorenstein => false})
 beMatrix(Matrix) := opts -> d -> (
      local I; local R; local r; local n; local degList; local theta; local syzDeg;
@@ -223,7 +226,7 @@ beMatrix(Matrix) := opts -> d -> (
      R = ring d;
      r = numgens R;
      n = numcols d;
-     degList = apply(n, i -> (degree d_(0,i))#0); -- Degree sequence for the generators, in non-decreasing order.
+     degList = apply(n, i -> (degree d_(0,i))#0); -- Degree sequence for the generators.
      
      -- Check that the generators satisfy the required conditions.
      if not isGorMinGenDegSeq(sort degList) then error "Error: The given generators do not minimally generate a homogeneous grade three Gorenstein ideal.";
@@ -257,122 +260,115 @@ beMatrix(Matrix) := opts -> d -> (
      kerGens = transpose mingens ker eqnMatrix;
      solCoeff = apply(numrows kerGens, i -> sub(vars R,S)|kerGens^{i});
      solMatrices = apply(#solCoeff, i -> sub(genSyzMatrix,solCoeff#i));
-     trueBEMatrix = scan(solMatrices, M -> (if rank M == (n - 1) then break sub(M,R)));
+     
+     -- One of the matrices must have rank n-1.  By the Buchsbaum-Eisenbud acyclicity criterion,
+     -- this matrix will be a Buchsbaum-Eisenbud matrix for the given generating set.
+     trueBEMatrix = scan(solMatrices, M -> (if rank M == n-1 then break sub(M,R)));
      return trueBEMatrix;
 )
 
--- Method: randomGorenstein
--- Inputs: (ZZ,ZZ,Ring) -> (Number of minimal generators,bound on the degrees of the generators,polynomial ring in 3 variables over a field)
--- Output: Minimal generators of a homogeneous grade 3 Gorenstein ideal in the given polynomial ring.
-
--- Note: Can we modify this to work for polynomial rings in >=3 variables?
--- Currently there are errors in this method where theta can be rational.  Need to check divisibility before performing division.
-randomGorenstein = method();
-randomGorenstein(ZZ,ZZ,Ring) := (numGens,genLimit,SRing) -> (
-     local RRing; local foundExample; local aboveDiag; local randomDegSeq;
-     local theta; local degCheck; local syzDeg; local G; local randomMatrix;
-     local subMatrix; local proposedGens;
+-- Method: randomGradeThreeGorenstein
+-- Inputs: (ZZ,ZZ,Ring) -- (Number of minimal generators, bound on the degrees of the generators, polynomial ring over a field)
+-- Output: Matrix -- Minimal generators of a homogeneous grade 3 Gorenstein ideal in the given polynomial ring.
+randomGradeThreeGorenstein = method(Options => {IterationLimit => 1000});
+randomGradeThreeGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genLimit,R) -> (
+     local foundExample; local iterations; local randomDegSeq; local genSyzMatrix;
+     local S; local origVars; local numCVars; local T; local randomCoeffMatrix;
+     local randomMatrix; local possibleGens;
+     
      if not odd numGens then error "Error: Expected an odd number of generators.";
+     if numgens R < 3 then error "Error: Expected a polynomial ring with at least three variables.";
+     
      foundExample = false;
-     aboveDiag = sub((numGens*(numGens-1))/2,ZZ);
-     RRing = (coefficientRing SRing)[flatten entries vars SRing,vars(52..51+aboveDiag)];
+     iterations = 0;
+          
      while foundExample == false do (
-	  print "Running through the loop.";
-     	  randomDegSeq = sort apply(numGens, i -> random(1,genLimit));
-     	  -- Make sure the random sequence satisfies the properties required for a degree sequence of the generators of a Gorenstein ideal.
-     	  theta = sub(sum(randomDegSeq)/sub((numGens-1)/2,ZZ),ZZ);
-     	  degCheck = apply(toList(1..sub((numGens-1)/2,ZZ)), i -> theta - randomDegSeq#(i) - randomDegSeq#(numGens-i));
-     	  while sum(randomDegSeq) % sub((numGens-1)/2,ZZ) != 0 or min degCheck <= 0 do (
-	       randomDegSeq = sort apply(numGens, i -> random(1,genLimit));
-     	       theta = sub(sum(randomDegSeq)/sub((numGens-1)/2,ZZ),ZZ);
-     	       degCheck = apply(toList(1..sub((numGens-1)/2,ZZ)), i -> theta - randomDegSeq#i - randomDegSeq#(numGens-i));
-     	  );
-     	  print randomDegSeq;
-          syzDeg = apply(numGens, i -> theta - randomDegSeq#i);
-     	  G = flatten apply(numGens-1, i -> apply(toList((i+1)..(numGens-1)), j -> sub(random(syzDeg#j-randomDegSeq#i,SRing),RRing)));
-	  randomMatrix = genericSkewMatrix(RRing,x0,numGens);
-     	  subMatrix = sub(matrix{flatten {flatten entries sub(vars SRing,RRing),G}},RRing);
-     	  randomMatrix = sub(sub(randomMatrix,subMatrix),SRing);
-     	  print("randomMatrix: ",randomMatrix);
-	  proposedGens = sub(matrix{ordPfaff(numGens-1,randomMatrix)},SRing);
-	  if rank randomMatrix == (numGens - 1) and depth(ideal proposedGens,SRing) == 3 and numcols(mingens ideal proposedGens) == numGens then foundExample = true;
+	  iterations = iterations + 1;
+	  if iterations > opts.IterationLimit then error("Error: Unable to find an ideal in "|toString(iterations)|" attempts.");
+	  randomDegSeq = randomGorMinGenDegSeq(numGens,genLimit);
+     	  genSyzMatrix = genericGorSyzMatrix(randomDegSeq,R);
+	  S = ring genSyzMatrix;
+	  origVars = sub(vars R,S); -- Matrix of the original variables from R in S.
+	  numCVars = numgens S - numgens R; -- Number of generic coefficient variables in genSyzMatrix.
+	  T = coefficientRing S;
+	  randomCoeffMatrix = origVars|(matrix {apply(numCVars, i -> random(T))}); -- Create a list of random coefficients.
+	  randomMatrix = sub(sub(genSyzMatrix,randomCoeffMatrix),R); -- Create a random skew-symmetric matrix of forms having the correct degrees.
+     	  possibleGens = matrix{submaximalPfaffians(randomMatrix)};
+	  if rank randomMatrix == (numGens-1) and depth(ideal possibleGens,R) == 3 and numcols mingens ideal possibleGens == numGens then foundExample = true;
      );
-     return proposedGens;
+ 
+     return possibleGens;
 )
 
--- Method: randomDSGorenstein
--- Inputs: List: A list containing the desired degrees of the generators of a grade 3 Gorenstein ideal in k[x,y,z].
---         Ring: The polynomial ring in which to create the ideal.
--- Output: A random grade 3 Gorenstein ideal whose generators have the given degree sequence.
-
--- Note: Can we modify this to work in polynomial rings with >=3 variables?
-randomDSGorenstein = method();
-randomDSGorenstein(List,Ring) := (degList,SRing) -> (
-     local RRing; local foundExample; local aboveDiag; local randomDegSeq;
-     local theta; local degCheck; local syzDeg; local G; local randomMatrix;
-     local subMatrix; local proposedGens;
-     numGens = #degList;
-     if not odd numGens then error "Error: Expected an odd number of generators.";
-     if not admissibleDegSeq(degList) then error "Error: Expected an admissible degree sequence for the minimal generators of a homogeneous grade 3 Gorenstein ideal.";
-     theta = sub(sum(degList)/((#degList -1)/2),ZZ);
+-- Method: randomGradeThreeDSGorenstein
+-- Inputs: (List,Ring) -- A list containing the desired degrees of the generators of a grade 3 Gorenstein ideal in the polynomial ring R.
+-- Output: Matrix -- A matrix containing minimal generators of a random grade 3 Gorenstein ideal whose minimal generators have the given degree sequence.
+randomGradeThreeDSGorenstein = method(Options => {IterationLimit => 1000});
+randomGradeThreeDSGorenstein(List,Ring) := opts -> (degList,R) -> (
+     local foundExample; local iterations; local randomDegSeq; local genSyzMatrix;
+     local S; local origVars; local numCVars; local T; local randomCoeffMatrix;
+     local randomMatrix; local possibleGens;
+     
+     if not isGorMinGenDegSeq(degList) then error "Error: There does not exist a homogeneous grade three Gorenstein ideal whose minimal generators have the given degree sequence.";
+     if numgens R < 3 then error "Error: Expected a polynomial ring with at least three variables.";
+     
      foundExample = false;
-     aboveDiag = sub((numGens*(numGens-1))/2,ZZ);
-     RRing = (coefficientRing SRing)[flatten entries vars SRing,vars(52..51+aboveDiag)];
+     iterations = 0;
+     genSyzMatrix = genericGorSyzMatrix(degList,R);
+     S = ring genSyzMatrix;
+     origVars = sub(vars R,S); -- Matrix of the original variables from R in S.
+     numCVars = numgens S - numgens R; -- Number of generic coefficient variables in genSyzMatrix.
+     T = coefficientRing S;
+          
      while foundExample == false do (
-	  print "Running through the loop.";
-     	  -- Make sure the random sequence satisfies the properties required for a degree sequence of the generators of a Gorenstein ideal.
-     	  syzDeg = apply(numGens, i -> theta - degList#i);
-     	  G = flatten apply(numGens-1, i -> apply(toList((i+1)..(numGens-1)), j -> sub(random(syzDeg#j-degList#i,SRing),RRing)));
-	  randomMatrix = genericSkewMatrix(RRing,x0,numGens);
-     	  subMatrix = sub(matrix{flatten {flatten entries sub(vars SRing,RRing),G}},RRing);
-     	  randomMatrix = sub(sub(randomMatrix,subMatrix),SRing);
-     	  print("randomMatrix: ",randomMatrix);
-	  proposedGens = sub(matrix{ordPfaff(numGens-1,randomMatrix)},SRing);
-	  if rank randomMatrix == (numGens - 1) and depth(ideal proposedGens,SRing) == 3 and numcols(mingens ideal proposedGens) == numGens then foundExample = true;
+	  iterations = iterations + 1;
+	  if iterations > opts.IterationLimit then error("Error: Unable to find an ideal in "|toString(iterations)|" attempts.");
+	  randomCoeffMatrix = origVars|(matrix {apply(numCVars, i -> random(T))}); -- Create a list of random coefficients.
+	  randomMatrix = sub(sub(genSyzMatrix,randomCoeffMatrix),R); -- Create a random skew-symmetric matrix of forms having the correct degrees.
+     	  possibleGens = matrix{submaximalPfaffians(randomMatrix)};
+	  if rank randomMatrix == (#degList-1) and depth(ideal possibleGens,R) == 3 and numcols mingens ideal possibleGens == #degList then foundExample = true;
      );
-     return proposedGens;
+ 
+     return possibleGens;
 )
 
-
--- Method: randomPureGorenstein - Generate a random grade 3 Gorenstein ideal with a pure resolution. (All generators have same degree.)
+-- Method: randomGradeThreePureGorenstein - Generate a random grade 3 Gorenstein ideal with a pure resolution. (All generators have same degree.)
 -- Inputs: ZZ: Number of generators of desired ideal. (Must be odd.)
 --         ZZ: Upper bound on the degrees of the generators. (All generators will have the same degree.)
 --         Ring: The polynomial ring in which to create the ideal.
 -- Output: A random grade 3 Gorenstein ideal with a pure resolution.
-
--- Note: Does this work if the ring has >=3 variables?
-randomPureGorenstein = method();
-randomPureGorenstein(ZZ,ZZ,Ring) := (numGens,genLimit,SRing) -> (
-     local RRing; local foundExample; local aboveDiag; local randomDegSeq;
-     local theta; local degCheck; local syzDeg; local G; local randomMatrix;
-     local subMatrix; local randomInt;
+randomGradeThreePureGorenstein = method(Options => {IterationLimit => 1000});
+randomGradeThreePureGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genLimit,R) -> (
+     local foundExample; local iterations; local randomDeg; local randomDegSeq;
+     local genSyzMatrix; local S; local origVars; local numCVars; local T;
+     local randomCoeffMatrix; local randomMatrix; local possibleGens;
+     
      if not odd numGens then error "Error: Expected an odd number of generators.";
+     if numgens R < 3 then error "Error: Expected a polynomial ring with at least three variables.";
+     
      foundExample = false;
-     aboveDiag = sub((numGens*(numGens-1))/2,ZZ);
-     RRing = (coefficientRing SRing)[flatten entries vars SRing,vars(52..51+aboveDiag)];
+     iterations = 0;
+          
      while foundExample == false do (
-	  print "Running through the loop.";
-     	  randomInt = random(1,genLimit);
-	  randomDegSeq = sort apply(numGens, i -> randomInt);
-     	  -- Make sure the random sequence satisfies the properties required for a degree sequence of the generators of a Gorenstein ideal.
-     	  theta = sub(sum(randomDegSeq)/sub((numGens-1)/2,ZZ),ZZ);
-     	  degCheck = apply(toList(1..sub((numGens-1)/2,ZZ)), i -> theta - randomDegSeq#i - randomDegSeq#(numGens-i));
-     	  while sum(randomDegSeq) % sub((numGens-1)/2,ZZ) != 0 or min degCheck <= 0 do (
-	       randomInt = random(1,genLimit);
-	       randomDegSeq = sort apply(numGens, i -> randomInt);
-     	       theta = sub(sum(randomDegSeq)/sub((numGens-1)/2,ZZ),ZZ);
-     	       degCheck = apply(toList(1..sub((numGens-1)/2,ZZ)), i -> theta - randomDegSeq#i - randomDegSeq#(numGens-i));
-     	  );
-     	  print randomDegSeq;
-          syzDeg = apply(numGens, i -> theta - randomDegSeq#i);
-     	  G = flatten apply(numGens-1, i -> apply(toList((i+1)..(numGens-1)), j -> sub(random(syzDeg#j-randomDegSeq#i,SRing),RRing)));
-	  randomMatrix = genericSkewMatrix(RRing,x0,numGens);
-     	  subMatrix = sub(matrix{flatten {flatten entries sub(vars SRing,RRing),G}},RRing);
-     	  randomMatrix = sub(sub(randomMatrix,subMatrix),SRing);
-     	  proposedGens = sub(matrix{ordPfaff(numGens-1,randomMatrix)},SRing);
-	  if rank randomMatrix == (numGens - 1) and depth(ideal proposedGens,SRing) == 3 and numcols(mingens ideal proposedGens) == numGens then foundExample = true;
+	  iterations = iterations + 1;
+	  if iterations > opts.IterationLimit then error("Error: Unable to find an ideal in "|toString(iterations)|" attempts.");
+	  randomDegSeq = apply(numGens, i -> 0);
+	  while not isGorMinGenDegSeq(randomDegSeq) do (
+	      randomDeg = random(1,genLimit);
+	      randomDegSeq = apply(numGens, i -> randomDeg);
+	  );
+     	  genSyzMatrix = genericGorSyzMatrix(randomDegSeq,R);
+	  S = ring genSyzMatrix;
+	  origVars = sub(vars R,S); -- Matrix of the original variables from R in S.
+	  numCVars = numgens S - numgens R; -- Number of generic coefficient variables in genSyzMatrix.
+	  T = coefficientRing S;
+	  randomCoeffMatrix = origVars|(matrix {apply(numCVars, i -> random(T))}); -- Create a list of random coefficients.
+	  randomMatrix = sub(sub(genSyzMatrix,randomCoeffMatrix),R); -- Create a random skew-symmetric matrix of forms having the correct degrees.
+     	  possibleGens = matrix{submaximalPfaffians(randomMatrix)};
+	  if rank randomMatrix == (numGens-1) and depth(ideal possibleGens,R) == 3 and numcols mingens ideal possibleGens == numGens then foundExample = true;
      );
-     return proposedGens;
+ 
+     return possibleGens;
 )
 
 end
@@ -395,7 +391,7 @@ pfaffians(4,d2) == I
 matrix{signedPfaffians(d2)} == 60*Gens -- Check that the signed maximal order pfaffians are a scalar multiple of the given generating set.
 
 restart
-load "BEMatrices.m2"
+loadPackage "GradeThreeGorenstein"
 R = QQ[x,y,z]
 I = ideal(x^6,y^6,z^6):(ideal(x+y+z))^6 -- 7 generated homogeneous grade 3 Gorenstein ideal in QQ[x,y,z]
 betti res comodule I -- 6 generators of degree 5 and 1 of degree 6
@@ -409,37 +405,37 @@ pfaffians(6,d2) == I
 matrix{ordPfaff(6,d2)} == -15120*Gens -- Check that the signed maximal order pfaffians are a scalar multiple of the given generating set.
 
 restart
-load "BEMatrices.m2"
+loadPackage "GradeThreeGorenstein"
 R = ZZ/5[x,y,z]
-I1 = ideal randomGorenstein(5,9,R)
+I1 = ideal randomGradeThreeGorenstein(5,9,R)
 apply(flatten entries gens I1, i -> (degree i)#0) -- Look at the degree sequence.
+gens I1
+betti res comodule I1
+beMatrix gens I1
 BE1 = map(R^5,R^5,beMatrix gens I1)
 transpose(BE1) == -BE1 -- Check that it is alternating.
 matrix{ordPfaff(4,BE1)} -- Compare signed maximal ordered pfaffians
 gens I1                 -- with original generators.
 
 restart
-load "BEMatrices.m2"
+loadPackage "GradeThreeGorenstein"
 R = ZZ/5[x,y,z]
-I2 = ideal randomDSGorenstein({4,5,6,6,8,8,8},R)
+I2 = ideal randomGradeThreeDSGorenstein({4,5,6,6,8,8,8},R)
 apply(flatten entries gens I2, i -> (degree i)#0) -- Look at the degree sequence.
 BE2 = map(R^7,R^7,beMatrix gens I2)
 transpose(BE2) == -BE2 -- Check that it is alternating.
-matrix{ordPfaff(6,BE2)} -- Compare signed maximal ordered pfaffians
+matrix{submaximalPfaffians(BE2)} -- Compare signed maximal ordered pfaffians
 gens I2                 -- with original generators.
 
 restart
-load "BEMatrices.m2"
+loadPackage "GradeThreeGorenstein"
 R = ZZ/5[x,y,z]
-I3 = ideal randomPureGorenstein(7,15,R)
+I3 = ideal randomGradeThreePureGorenstein(7,15,R)
 apply(flatten entries gens I3, i -> (degree i)#0) -- Look at the degree sequence.
 BE3 = map(R^7,R^7,beMatrix gens I3)
 transpose(BE3) == -BE3 -- Check that it is alternating.
-matrix{ordPfaff(6,BE3)} -- Compare signed maximal ordered pfaffians
+matrix{submaximalPfaffians(BE3)} -- Compare signed maximal ordered pfaffians
 gens I3                 -- with original generators.
-
-
-
 
 -- Tests
 
@@ -447,6 +443,3 @@ restart
 loadPackage "GradeThreeGorenstein"
 R = QQ[x,y,z]
 d = randomGorMinGenDegSeq(5,11)
-genericGorSyzMatrix(d,R)
-d
-sum(d)/2
