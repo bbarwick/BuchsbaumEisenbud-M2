@@ -1,8 +1,7 @@
 -- To do list:
 
 -- 1. Tweak beMatrix (really genericGorSyzMatrix) to work over ZZ/2.
--- 2. Write tests.
--- 3. 
+-- 2. Fix error in test 4.
 
 -----------------------------------------------------------------------------
 -- PURPOSE : The GradeThreeGorenstein package for Macaulay2 computes a Buchsbaum-Eisenbud
@@ -202,6 +201,8 @@ gradeThreeGorensteinBetti(List):= degList ->(
     theta = sub(sum(degList)/m,ZZ);
     K = max degList;
     
+    degList = sort degList; -- Make sure the list is non-decreasing.
+    
     -- Create a list of the number of times that each generator degree occurs.
     degFreq = apply(toList(1..K), i -> #positions(degList, j -> j==i));
     
@@ -269,6 +270,38 @@ beMatrix(Matrix) := opts -> d -> (
      return trueBEMatrix;
 )
 
+-- Method: randomGradeThreeDSGorenstein
+-- Inputs: (List,Ring) -- A list containing the desired degrees of the generators of a grade 3 Gorenstein ideal in the polynomial ring R.
+-- Output: Matrix -- A matrix containing minimal generators of a random grade 3 Gorenstein ideal whose minimal generators have the given degree sequence.
+randomGradeThreeDSGorenstein = method(Options => {IterationLimit => 1000});
+randomGradeThreeDSGorenstein(List,Ring) := opts -> (degList,R) -> (
+     local foundExample; local iterations; local randomDegSeq; local genSyzMatrix;
+     local S; local origVars; local numCVars; local T; local randomCoeffMatrix;
+     local randomMatrix; local possibleGens;
+     
+     if not isGorMinGenDegSeq(degList) then error "Error: There does not exist a homogeneous grade three Gorenstein ideal whose minimal generators have the given degree sequence.";
+     if numgens R < 3 then error "Error: Expected a polynomial ring with at least three variables.";
+     
+     foundExample = false;
+     iterations = 0;
+     genSyzMatrix = genericGorSyzMatrix(degList,R);
+     S = ring genSyzMatrix;
+     origVars = sub(vars R,S); -- Matrix of the original variables from R in S.
+     numCVars = numgens S - numgens R; -- Number of generic coefficient variables in genSyzMatrix.
+     T = coefficientRing S;
+          
+     while foundExample == false do (
+	  iterations = iterations + 1;
+	  if iterations > opts.IterationLimit then error("Error: Unable to find an ideal in "|toString(iterations)|" attempts.");
+	  randomCoeffMatrix = origVars|(matrix {apply(numCVars, i -> random(T))}); -- Create a list of random coefficients.
+	  randomMatrix = sub(sub(genSyzMatrix,randomCoeffMatrix),R); -- Create a random skew-symmetric matrix of forms having the correct degrees.
+     	  possibleGens = submaximalPfaffians(randomMatrix);
+	  if rank randomMatrix == (#degList-1) and depth(ideal possibleGens,R) == 3 and numcols mingens ideal possibleGens == #degList then foundExample = true;
+     );
+ 
+     return possibleGens;
+)
+
 -- Method: randomGradeThreeGorenstein
 -- Inputs: (ZZ,ZZ,Ring) -- (Number of minimal generators, bound on the degrees of the generators, polynomial ring over a field)
 -- Output: Matrix -- Minimal generators of a homogeneous grade 3 Gorenstein ideal in the given polynomial ring.
@@ -302,38 +335,6 @@ randomGradeThreeGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genLimit,R) -> (
      return possibleGens;
 )
 
--- Method: randomGradeThreeDSGorenstein
--- Inputs: (List,Ring) -- A list containing the desired degrees of the generators of a grade 3 Gorenstein ideal in the polynomial ring R.
--- Output: Matrix -- A matrix containing minimal generators of a random grade 3 Gorenstein ideal whose minimal generators have the given degree sequence.
-randomGradeThreeDSGorenstein = method(Options => {IterationLimit => 1000});
-randomGradeThreeDSGorenstein(List,Ring) := opts -> (degList,R) -> (
-     local foundExample; local iterations; local randomDegSeq; local genSyzMatrix;
-     local S; local origVars; local numCVars; local T; local randomCoeffMatrix;
-     local randomMatrix; local possibleGens;
-     
-     if not isGorMinGenDegSeq(degList) then error "Error: There does not exist a homogeneous grade three Gorenstein ideal whose minimal generators have the given degree sequence.";
-     if numgens R < 3 then error "Error: Expected a polynomial ring with at least three variables.";
-     
-     foundExample = false;
-     iterations = 0;
-     genSyzMatrix = genericGorSyzMatrix(degList,R);
-     S = ring genSyzMatrix;
-     origVars = sub(vars R,S); -- Matrix of the original variables from R in S.
-     numCVars = numgens S - numgens R; -- Number of generic coefficient variables in genSyzMatrix.
-     T = coefficientRing S;
-          
-     while foundExample == false do (
-	  iterations = iterations + 1;
-	  if iterations > opts.IterationLimit then error("Error: Unable to find an ideal in "|toString(iterations)|" attempts.");
-	  randomCoeffMatrix = origVars|(matrix {apply(numCVars, i -> random(T))}); -- Create a list of random coefficients.
-	  randomMatrix = sub(sub(genSyzMatrix,randomCoeffMatrix),R); -- Create a random skew-symmetric matrix of forms having the correct degrees.
-     	  possibleGens = submaximalPfaffians(randomMatrix);
-	  if rank randomMatrix == (#degList-1) and depth(ideal possibleGens,R) == 3 and numcols mingens ideal possibleGens == #degList then foundExample = true;
-     );
- 
-     return possibleGens;
-)
-
 -- Method: randomGradeThreePureGorenstein - Generate a random grade 3 Gorenstein ideal with a pure resolution. (All generators have same degree.)
 -- Inputs: ZZ: Number of generators of desired ideal. (Must be odd.)
 --         ZZ: Desired degree of all of the generators.
@@ -341,7 +342,7 @@ randomGradeThreeDSGorenstein(List,Ring) := opts -> (degList,R) -> (
 -- Output: A random grade 3 Gorenstein ideal with a pure resolution.
 randomGradeThreePureGorenstein = method(Options => {IterationLimit => 1000});
 randomGradeThreePureGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genDegree,R) -> (
-    return randomGradeThreeDSGorenstein(apply(numGens, i -> genDegree),R);
+    return randomGradeThreeDSGorenstein(apply(numGens, i -> genDegree),R,IterationLimit => opts.IterationLimit);
 )
 
 --------------------------------------------------------------------
@@ -756,25 +757,136 @@ Key
 -- Tests -----------------------------------------------------------
 --------------------------------------------------------------------
 
--- beMatrix Tests --
+-- submaximalPfaffians Tests (0) --
 TEST ///
-    R = ZZ/5[x,y,z]
-    g = matrix {{-x^2+x*y+2*x*z, -2*x^2+x*y-2*y^2+2*y*z+2*z^2, -2*x*y+x*z, x^4+x*y^3-x^3*z+x^2*y*z-2*x*y^2*z+2*y^3*z-x^2*z^2-x*y*z^2+y*z^3+z^4, x^3*y-x^2*y^2+y^4+x^3*z+x*y^2*z+y^3*z+x*y*z^2+y^2*z^2+2*x*z^3+2*y*z^3+z^4}}
-    I = ideal(g)
-    B = beMatrix(g)
-    assert(B + transpose(B) == 0)
-    assert(g*B == 0)
-    assert(submaximalPfaffians(B) == -g)
+    R = QQ[a..j]
+    M1 = genericSkewMatrix(R,3)
+    assert(submaximalPfaffians(M1) == matrix{{c,-b,a}})
+    M2 = genericSkewMatrix(R,5)
+    assert(submaximalPfaffians(M2) == matrix{{g*h-f*i+e*j, -d*h+c*i-b*j, d*f-c*g+a*j, -d*e+b*g-a*i, c*e-b*f+a*h}})
     ///
 
--- randomGradeThreeDSGorenstein Tests --
+-- beMatrix Tests (1) --
 TEST ///
-    R = QQ[x,y,z];
-    d = randomGorMinGenDegSeq(7,10);
-    g = randomGradeThreeDSGorenstein(d,R);
-    M = map(R^7,R^7,beMatrix g);
-    assert(M + transpose(M) == 0);
-    assert(d*M == 0);
+    R = ZZ/5[x,y,z]
+    g1 = matrix {{-x^2+x*y+2*x*z, -2*x^2+x*y-2*y^2+2*y*z+2*z^2, -2*x*y+x*z, x^4+x*y^3-x^3*z+x^2*y*z-2*x*y^2*z+2*y^3*z-x^2*z^2-x*y*z^2+y*z^3+z^4, x^3*y-x^2*y^2+y^4+x^3*z+x*y^2*z+y^3*z+x*y*z^2+y^2*z^2+2*x*z^3+2*y*z^3+z^4}}
+    BE1 = beMatrix(g1)
+    P1 = submaximalPfaffians(BE1)
+    c1 = (transpose g1) // (transpose P1)
+    assert(BE1 + transpose(BE1) == 0) -- Check that BE1 is skew-symmetric.
+    assert(g1*BE1 == 0) -- Check that the columns of BE1 are relations on g1.
+    assert(c1 != 0 and (degree c1)#0 == 0) -- Check that g1 and P1 are nonzero scalar multiples of one another.
+    
+    g2 = randomGradeThreeGorenstein(7,10,R);
+    BE2 = beMatrix(g2)
+    P2 = submaximalPfaffians(BE2)
+    c2 = (transpose g2) // (transpose P2)
+    assert(BE2 + transpose(BE2) == 0) -- Check that BE2 is skew-symmetric.
+    assert(g2*BE2 == 0) -- Check that the columns of BE2 are relations on g1.
+    assert(c2 != 0 and (degree c2)#0 == 0) -- Check that g2 and P2 are nonzero scalar multiples of one another.
+    ///
+
+-- gradeThreeGorensteinBetti Tests (2) --
+TEST ///
+    R = ZZ/5[x,y,z]
+    g1 = matrix {{-x^2+x*y+2*x*z, -2*x^2+x*y-2*y^2+2*y*z+2*z^2, -2*x*y+x*z, x^4+x*y^3-x^3*z+x^2*y*z-2*x*y^2*z+2*y^3*z-x^2*z^2-x*y*z^2+y*z^3+z^4, x^3*y-x^2*y^2+y^4+x^3*z+x*y^2*z+y^3*z+x*y*z^2+y^2*z^2+2*x*z^3+2*y*z^3+z^4}}
+    d1 = sort apply(flatten entries g1, i -> (degree i)#0)
+    assert(gradeThreeGorensteinBetti(d1) == betti res comodule ideal g1)
+    
+    g2 = randomGradeThreeGorenstein(7,10,R);
+    d2 = sort apply(flatten entries g2, i -> (degree i)#0)
+    assert(gradeThreeGorensteinBetti(d2) == betti res comodule ideal g2)
+    ///
+    
+-- isGorMinGenDegSeq Tests (3) --
+TEST ///
+    assert(not isGorMinGenDegSeq({0}))
+    assert(not isGorMinGenDegSeq({5,5,5,5}))
+    assert(not isGorMinGenDegSeq({5,5,5,5,5}))
+    assert(not isGorMinGenDegSeq({3,5,5,7,10}))
+    assert(isGorMinGenDegSeq({6,6,6,6,6}))
+    assert(isGorMinGenDegSeq({7,7,7,8,8,10,10,14,14,15,15}))
+    ///
+
+-- randomGorMinGenDegSeq Tests (4) --
+TEST ///
+    d1 = randomGorMinGenDegSeq(7,12)
+    assert(isGorMinGenDegSeq(d1))
+    d2 = randomGorMinGenDegSeq(11,15)
+    assert(isGorMinGenDegSeq(d2))
+    ///
+
+-- randomGradeThreeDSGorenstein Tests (5) --
+TEST ///
+    R = ZZ/5[x,y,z]
+    
+    d1 = {7,7,7,8,11}
+    g1 = randomGradeThreeDSGorenstein(d1,R)
+    I1 = ideal g1
+    deg1 = apply(flatten entries g1, i -> (degree i)#0)
+    assert(d1 == deg1) -- Check that the degrees of the generators are correct.
+    assert(isHomogeneous I1) -- Check that the polynomials generate a homogeneous ideal.
+    assert(numcols mingens I1 == numcols g1) -- Check that g1 is a minimal generating set.
+    assert(isCM comodule I1) -- Check that the quotient ring is Cohen-Macaulay.
+    assert(depth(I1,R) == 3) -- Check that the ideal has depth 3 in R.
+    assert(rank (res comodule I1)_3 == 1) -- Check that the ideal has type 1.
+    
+    d2 = randomGorMinGenDegSeq(7,10)
+    g2 = randomGradeThreeDSGorenstein(d2,R)
+    I2 = ideal g2
+    deg2 = apply(flatten entries g2, i -> (degree i)#0)
+    assert(d2 == deg2) -- Check that the degrees of the generators are correct.
+    assert(isHomogeneous I2) -- Check that the polynomials generate a homogeneous ideal.
+    assert(numcols mingens I2 == numcols g2) -- Check that g2 is a minimal generating set.
+    assert(isCM comodule I2) -- Check that the quotient ring is Cohen-Macaulay.
+    assert(depth(I2,R) == 3) -- Check that the ideal has depth 3 in R.
+    assert(rank (res comodule I2)_3 == 1) -- Check that the ideal has type 1.
+    ///
+
+-- randomGradeThreeGorenstein Tests (6) --
+TEST ///
+    R = ZZ/5[x,y,z]
+    
+    g1 = randomGradeThreeGorenstein(5,11,R)
+    I1 = ideal g1
+    assert(isHomogeneous I1) -- Check that the polynomials generate a homogeneous ideal.
+    assert(numcols mingens I1 == numcols g1) -- Check that g1 is a minimal generating set.
+    assert(isCM comodule I1) -- Check that the quotient ring is Cohen-Macaulay.
+    assert(depth(I1,R) == 3) -- Check that the ideal has depth 3 in R.
+    assert(rank (res comodule I1)_3 == 1) -- Check that the ideal has type 1.
+    
+    g2 = randomGradeThreeGorenstein(7,13,R)
+    I2 = ideal g2
+    assert(isHomogeneous I2) -- Check that the polynomials generate a homogeneous ideal.
+    assert(numcols mingens I2 == numcols g2) -- Check that g2 is a minimal generating set.
+    assert(isCM comodule I2) -- Check that the quotient ring is Cohen-Macaulay.
+    assert(depth(I2,R) == 3) -- Check that the ideal has depth 3 in R.
+    assert(rank (res comodule I2)_3 == 1) -- Check that the ideal has type 1.
+    ///
+
+-- randomGradeThreePureGorenstein Tests (7) --
+TEST ///
+    R = ZZ/5[x,y,z]
+    
+    g1 = randomGradeThreePureGorenstein(5,6,R)
+    I1 = ideal g1
+    deg1 = apply(flatten entries g1, i -> (degree i)#0)
+    assert(deg1 == {6,6,6,6,6})
+    assert(isHomogeneous I1) -- Check that the polynomials generate a homogeneous ideal.
+    assert(numcols mingens I1 == numcols g1) -- Check that g1 is a minimal generating set.
+    assert(isCM comodule I1) -- Check that the quotient ring is Cohen-Macaulay.
+    assert(depth(I1,R) == 3) -- Check that the ideal has depth 3 in R.
+    assert(rank (res comodule I1)_3 == 1) -- Check that the ideal has type 1.
+    
+    g2 = randomGradeThreePureGorenstein(7,9,R)
+    I2 = ideal g2
+    deg2 = apply(flatten entries g2, i -> (degree i)#0)
+    assert(deg2 == {9,9,9,9,9,9,9})
+    assert(isHomogeneous I2) -- Check that the polynomials generate a homogeneous ideal.
+    assert(numcols mingens I2 == numcols g2) -- Check that g2 is a minimal generating set.
+    assert(isCM comodule I2) -- Check that the quotient ring is Cohen-Macaulay.
+    assert(depth(I2,R) == 3) -- Check that the ideal has depth 3 in R.
+    assert(rank (res comodule I2)_3 == 1) -- Check that the ideal has type 1.
     ///
 
 end
@@ -786,6 +898,7 @@ restart
 uninstallPackage "GradeThreeGorenstein"
 installPackage "GradeThreeGorenstein"
 viewHelp GradeThreeGorenstein
+check GradeThreeGorenstein -- Run tests
 
 ----------------------------
 -- Examples ----------------
