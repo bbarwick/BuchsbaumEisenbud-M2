@@ -117,15 +117,18 @@ isGorMinGenDegSeq(List) := degList -> (
 -- Input: (ZZ,ZZ) -- The length n of the desired degree sequence and an upper bound M on the allowed degrees.
 -- Output: List -- A degree sequence of length n with degrees bounded above by M such that there exists a
 -- homogeneous grade three Gorenstein ideal minimally generated in these degrees.
-randomGorMinGenDegSeq = method();
-randomGorMinGenDegSeq(ZZ,ZZ):= (n,M) ->(
+randomGorMinGenDegSeq = method(Options => {IterationLimit => 1000});
+randomGorMinGenDegSeq(ZZ,ZZ):= opts -> (n,M) ->(
     if not odd n then error "Error: A degree sequence for a set of minimal generators of a homogeneous grade three Gorenstein ideal must have odd length.";
     
-    local D;
+    local D; local iterations;
     
+    iterations = 0;
     D = {1,1};
     while not isGorMinGenDegSeq(D) do (
-                D = sort apply(n, i-> random(1,M));
+	iterations = iterations+1;
+	if iterations > opts.IterationLimit then error("Error: Unable to find an ideal in "|toString(iterations)|" attempts.");
+	D = sort apply(n, i-> random(1,M));
     );
     return D;
 )
@@ -293,7 +296,7 @@ randomGradeThreeGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genLimit,R) -> (
 	  T = coefficientRing S;
 	  randomCoeffMatrix = origVars|(matrix {apply(numCVars, i -> random(T))}); -- Create a list of random coefficients.
 	  randomMatrix = sub(sub(genSyzMatrix,randomCoeffMatrix),R); -- Create a random skew-symmetric matrix of forms having the correct degrees.
-     	  possibleGens = matrix{submaximalPfaffians(randomMatrix)};
+     	  possibleGens = submaximalPfaffians(randomMatrix);
 	  if rank randomMatrix == (numGens-1) and depth(ideal possibleGens,R) == 3 and numcols mingens ideal possibleGens == numGens then foundExample = true;
      );
  
@@ -325,7 +328,7 @@ randomGradeThreeDSGorenstein(List,Ring) := opts -> (degList,R) -> (
 	  if iterations > opts.IterationLimit then error("Error: Unable to find an ideal in "|toString(iterations)|" attempts.");
 	  randomCoeffMatrix = origVars|(matrix {apply(numCVars, i -> random(T))}); -- Create a list of random coefficients.
 	  randomMatrix = sub(sub(genSyzMatrix,randomCoeffMatrix),R); -- Create a random skew-symmetric matrix of forms having the correct degrees.
-     	  possibleGens = matrix{submaximalPfaffians(randomMatrix)};
+     	  possibleGens = submaximalPfaffians(randomMatrix);
 	  if rank randomMatrix == (#degList-1) and depth(ideal possibleGens,R) == 3 and numcols mingens ideal possibleGens == #degList then foundExample = true;
      );
  
@@ -334,12 +337,12 @@ randomGradeThreeDSGorenstein(List,Ring) := opts -> (degList,R) -> (
 
 -- Method: randomGradeThreePureGorenstein - Generate a random grade 3 Gorenstein ideal with a pure resolution. (All generators have same degree.)
 -- Inputs: ZZ: Number of generators of desired ideal. (Must be odd.)
---         ZZ: Upper bound on the degrees of the generators. (All generators will have the same degree.)
+--         ZZ: Desired degree of all of the generators.
 --         Ring: The polynomial ring in which to create the ideal.
 -- Output: A random grade 3 Gorenstein ideal with a pure resolution.
 randomGradeThreePureGorenstein = method(Options => {IterationLimit => 1000});
-randomGradeThreePureGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genLimit,R) -> (
-     local foundExample; local iterations; local randomDeg; local randomDegSeq;
+randomGradeThreePureGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genDegree,R) -> (
+     local foundExample; local iterations; local degSeq;
      local genSyzMatrix; local S; local origVars; local numCVars; local T;
      local randomCoeffMatrix; local randomMatrix; local possibleGens;
      
@@ -348,23 +351,20 @@ randomGradeThreePureGorenstein(ZZ,ZZ,Ring) := opts -> (numGens,genLimit,R) -> (
      
      foundExample = false;
      iterations = 0;
-          
+     degSeq = apply(numGens, i -> genDegree);
+     if not isGorMinGenDegSeq(degSeq) then error("Error: There does not exist a grade three Gorenstein ideal minimally generated in degrees: "|toString(degSeq)|".");
+     
      while foundExample == false do (
 	  iterations = iterations + 1;
 	  if iterations > opts.IterationLimit then error("Error: Unable to find an ideal in "|toString(iterations)|" attempts.");
-	  randomDegSeq = apply(numGens, i -> 0);
-	  while not isGorMinGenDegSeq(randomDegSeq) do (
-	      randomDeg = random(1,genLimit);
-	      randomDegSeq = apply(numGens, i -> randomDeg);
-	  );
-     	  genSyzMatrix = genericGorSyzMatrix(randomDegSeq,R);
+	  genSyzMatrix = genericGorSyzMatrix(degSeq,R);
 	  S = ring genSyzMatrix;
 	  origVars = sub(vars R,S); -- Matrix of the original variables from R in S.
 	  numCVars = numgens S - numgens R; -- Number of generic coefficient variables in genSyzMatrix.
 	  T = coefficientRing S;
 	  randomCoeffMatrix = origVars|(matrix {apply(numCVars, i -> random(T))}); -- Create a list of random coefficients.
 	  randomMatrix = sub(sub(genSyzMatrix,randomCoeffMatrix),R); -- Create a random skew-symmetric matrix of forms having the correct degrees.
-     	  possibleGens = matrix{submaximalPfaffians(randomMatrix)};
+     	  possibleGens = submaximalPfaffians(randomMatrix);
 	  if rank randomMatrix == (numGens-1) and depth(ideal possibleGens,R) == 3 and numcols mingens ideal possibleGens == numGens then foundExample = true;
      );
  
@@ -575,11 +575,90 @@ Description
     
     d4 = {4,4,5,6,6,8,9}
     isGorMinGenDegSeq(d4) -- All conditions are met.
+    
+SeeAlso
+    randomGorMinGenDegSeq
+    randomGradeThreeDSGorenstein
 ///
 
 doc ///
 Key
     (isGorMinGenDegSeq,List)
+///
+
+doc ///
+Key
+    randomGorMinGenDegSeq
+Headline
+    computes a random non-decreasing sequence of positive integers that represents the degrees of a minimal generating set of a homogeneous grade three Gorenstein ideal.
+Usage
+    d = randomGorMinGenDegSeq(m,n)
+Inputs
+    m:ZZ
+      a positive integer, the number of generators.
+    n:ZZ
+      a positive integer, an upper bound on the degrees of the generators.
+    IterationLimit => ZZ
+      an optional parameter providing a limit for how many iterations are attempted when computing the random degree sequence.
+Outputs
+    d:List
+      a list of degrees of a minimal generating set for a homogeneous grade three Gorenstein ideal.
+Description
+  Text
+    This method computes a random degree sequence which occurs as the degrees of a minimal generating set
+    for a homogeneous grade three Gorenstein ideal.
+
+  Example
+    d = randomGorMinGenDegSeq(9,13) -- Find a random degree sequence for an ideal with 9 generators of degree <= 13.
+    gradeThreeGorensteinBetti(d) -- The Betti diagram for a grade three Gorenstein ideal having these generator degrees.
+    
+SeeAlso
+    gradeThreeGorensteinBetti
+    isGorMinGenDegSeq
+    randomGradeThreeDSGorenstein
+///
+
+doc ///
+Key
+    (randomGorMinGenDegSeq,ZZ,ZZ)
+///
+
+doc ///
+Key
+    randomGradeThreeDSGorenstein
+Headline
+    computes a random set of minimal generators for a homogeneous grade three Gorenstein ideal with the given degree sequence.
+Usage
+    g = randomGradeThreeDSGorenstein(L,R)
+Inputs
+    L:List
+      the desired sequence of degrees of the minimal generators.
+    R:Ring
+      a polynomial ring in which to construct the ideal.
+    IterationLimit => ZZ
+      an optional parameter providing a limit for how many iterations are attempted when computing the random generating set.
+Outputs
+    g:Matrix
+      a minimal generating set for a homogeneous grade three Gorenstein ideal having the desired generator degrees.
+Description
+  Text
+    This method computes a random set of minimal generators for a homogeneous grade three Gorenstein ideal in the given ring
+    having the given generator degrees. If the given polynomial ring does not contain at least 3
+    variables, or if the given degree sequence cannot occur as the degrees of a minimal generating set for
+    a homogeneous grade three Gorenstein ideal, an error is thrown.
+  Example
+    d = randomGorMinGenDegSeq(5,9) -- Find a random degree sequence for an ideal with 5 generators of degree <= 9.
+    R = ZZ/5[x,y,z]
+    randomGradeThreeDSGorenstein(d,R) -- Find a random set of minimal generators for a grade three Gorenstein ideal in R having these generator degrees.
+    
+SeeAlso
+    isGorMinGenDegSeq
+    randomGorMinGenDegSeq
+///
+
+doc ///
+Key
+    (randomGradeThreeDSGorenstein,List,Ring)
 ///
 
 
@@ -685,4 +764,10 @@ viewHelp CheckGorenstein
 R = QQ[x,y,z]
 d = randomGorMinGenDegSeq(5,11)
 
-    
+
+restart
+loadPackage "GradeThreeGorenstein"
+R = QQ[x,y,z]
+d = randomGorMinGenDegSeq(5,9)
+g = randomGradeThreeDSGorenstein(d,R)
+betti res comodule ideal g
